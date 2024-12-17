@@ -151,16 +151,15 @@ class BudgetTracker:
 
         while True:
             print("\n--- Budget Tracker ---")
-            print("1. Record Transaction")
-            print("2. Set Budget")
-            print("3. Check Budget Alerts")
-            print("4. Spending Summary")
-            print("5. Set Savings Goal")
-            print("6. Update Savings")
-            print("7. Import Transactions")
-            print("8. Export Transactions")
+            print("1. Record a transaction")
+            print("2. Set a budget")
+            print("3. Start budget monitoring")
+            print("4. View spending summary")
+            print("5. Set a savings goal")
+            print("6. Update savings progress")
+            print("7. Import transactions (CSV)")
+            print("8. Export transactions")
             print("9. Exit")
-
             choice = input("Choose an option: ")
 
             try:

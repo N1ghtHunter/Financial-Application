@@ -1,149 +1,198 @@
 import json
+import os
+import time
 import csv
 from typing import List, Dict, Callable
 from datetime import datetime
-import os
-from typing import List, Dict
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from functools import reduce
 
-# Utility functions
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TRANSACTIONS_FILE = os.path.join(BASE_DIR, "transactions.json")
+BUDGETS_FILE = os.path.join(BASE_DIR, "budgets.json")
+SAVINGS_FILE = os.path.join(BASE_DIR, "savings.json")
+ALERT_THRESHOLD = 0.9  # 90% of the budget
+
+# Utility Functions
 def ensure_files_exist():
     """Ensure that necessary files exist with initial content."""
-    for filename, default_content in [("transactions.json", []), ("budgets.json", {})]:
-        path = os.path.join(BASE_DIR, filename)
+    files = [
+        (TRANSACTIONS_FILE, []),
+        (BUDGETS_FILE, {}),
+        (SAVINGS_FILE, {})
+    ]
+    def ensure_rec(index=0):
+        if index >= len(files):
+            return
+        path, default_content = files[index]
         if not os.path.exists(path):
             with open(path, "w") as file:
                 json.dump(default_content, file)
-            print(f"Created '{filename}' with initial content.")
+        ensure_rec(index + 1)
+    ensure_rec()
 
-def load_data(file_name: str) -> List or Dict:
+def load_data(file_path: str) -> List or Dict:
     """Load JSON data from file."""
-    path = os.path.join(BASE_DIR, file_name)
-    with open(path, "r") as file:
+    with open(file_path, "r") as file:
         return json.load(file)
 
-def save_data(file_name: str, data: List or Dict):
+def save_data(file_path: str, data: List or Dict):
     """Save JSON data to file."""
-    path = os.path.join(BASE_DIR, file_name)
-    with open(path, "w") as file:
+    with open(file_path, "w") as file:
         json.dump(data, file, indent=4)
 
-def input_transaction() -> Dict:
-    """Input a transaction and return it as a dictionary."""
-    return {
-        "amount": float(input("Enter transaction amount: ")),
-        "category": input("Enter transaction category: "),
-        "type": input("Enter transaction type (income/expense): "),
-        "date": input("Enter date (YYYY-MM-DD) or press Enter for today: ") or datetime.now().strftime('%Y-%m-%d'),
-    }
+# Functional Helpers
+def filter_transactions(transactions: List[Dict], predicate: Callable[[Dict], bool]) -> List[Dict]:
+    return list(filter(predicate, transactions))
 
-def add_transaction(transactions: List[Dict], transaction: Dict) -> List[Dict]:
-    """Add a new transaction to the transactions list."""
-    return transactions + [transaction]
+def map_transactions(transactions: List[Dict], mapper: Callable[[Dict], float]) -> List[float]:
+    return list(map(mapper, transactions))
 
-def set_budget(budgets: Dict) -> Callable:
-    """Return a function to add/update a budget."""
-    def add_budget(category: str, amount: float) -> Dict:
-        budgets[category] = amount
-        return budgets
-    return add_budget
+def reduce_transactions(values: List[float], reducer: Callable[[float, float], float], initial: float = 0) -> float:
+    return reduce(reducer, values, initial)
 
+# Budget Functions
 def calculate_budget_utilization(transactions: List[Dict], budgets: Dict) -> Dict:
-    """Calculate spending for each budget category."""
-    def is_expense_in_budget(transaction):
-        return transaction['type'] == 'expense' and transaction['category'] in budgets
+    expenses = filter_transactions(transactions, lambda t: t["type"] == "expense")
+    def calculate_utilization(expenses_list, utilization=None):
+        if utilization is None:
+            utilization = {}
+        if not expenses_list:
+            return utilization
+        txn = expenses_list[0]
+        category = txn["category"]
+        if category in budgets:
+            utilization[category] = utilization.get(category, 0) + txn["amount"]
+        return calculate_utilization(expenses_list[1:], utilization)
 
-    # Use filter to keep relevant transactions, and reduce to aggregate totals
-    expenses = filter(is_expense_in_budget, transactions)
-    utilization = {}
-    for transaction in expenses:
-        utilization[transaction['category']] = utilization.get(transaction['category'], 0) + transaction['amount']
-    return utilization
+    return calculate_utilization(expenses)
 
+def check_budget_alerts(transactions: List[Dict], budgets: Dict):
+    utilization = calculate_budget_utilization(transactions, budgets)
+    def check_alerts(alert_list):
+        if not alert_list:
+            return
+        category, spent = alert_list[0]
+        if spent / budgets[category] >= ALERT_THRESHOLD:
+            print(f"\n⚠️ ALERT: '{category}' is at {spent / budgets[category]:.0%} of the budget! Spent: {spent}, Limit: {budgets[category]}")
+        check_alerts(alert_list[1:])
+
+    check_alerts(list(utilization.items()))
+
+# Summarize Spending
 def summarize_spending(transactions: List[Dict]):
-    """Summarize spending by category."""
-    def is_expense(transaction):
-        return transaction['type'] == 'expense'
+    expenses = filter_transactions(transactions, lambda t: t["type"] == "expense")
+    def calculate_totals(expenses_list, totals=None):
+        if totals is None:
+            totals = {}
+        if not expenses_list:
+            return totals
+        txn = expenses_list[0]
+        totals[txn["category"]] = totals.get(txn["category"], 0) + txn["amount"]
+        return calculate_totals(expenses_list[1:], totals)
 
-    expenses = filter(is_expense, transactions)
-    spending = {}
-    for transaction in expenses:
-        spending[transaction['category']] = spending.get(transaction['category'], 0) + transaction['amount']
-    return spending
+    category_totals = calculate_totals(expenses)
+    total_spent = sum(category_totals.values())
 
-def savings_target(goal: float, months: int) -> float:
-    """Calculate monthly savings needed."""
-    return goal / months
+    print("\nSpending Summary:")
+    def print_summary(categories):
+        if not categories:
+            return
+        category, amount = categories[0]
+        print(f"  - {category}: ${amount:.2f}")
+        print_summary(categories[1:])
 
-def analyze_trends(transactions: List[Dict], current_month: int, previous_month: int) -> Dict:
-    """Analyze trends between two months."""
-    get_month = lambda t: int(t['date'].split('-')[1])
-    current_spending = sum(t['amount'] for t in transactions if get_month(t) == current_month)
-    previous_spending = sum(t['amount'] for t in transactions if get_month(t) == previous_month)
-    return {"current": current_spending, "previous": previous_spending}
+    print_summary(list(category_totals.items()))
+    print(f"Total Spending: ${total_spent:.2f}")
 
-# Menu-driven system using Higher-Order Functions
+# Savings Functions
+def set_savings_goal():
+    savings = load_data(SAVINGS_FILE)
+    goal = float(input("Enter savings goal amount: "))
+    savings = {**savings, "goal": goal, "recommended_monthly": goal / 12, "current_savings": savings.get("current_savings", 0)}
+    save_data(SAVINGS_FILE, savings)
+    print(f"Savings goal of ${goal:.2f} set. You should save ${goal / 12:.2f} per month.")
+
+def update_savings(amount: float):
+    savings = load_data(SAVINGS_FILE)
+    current_savings = savings.get("current_savings", 0) + amount
+    savings = {**savings, "current_savings": current_savings}
+    save_data(SAVINGS_FILE, savings)
+    print(f"${amount:.2f} added to savings. Current savings: ${current_savings:.2f}")
+    if current_savings >= savings["goal"]:
+        print("🎉 Congratulations! You've achieved your savings goal!")
+
+# Import and Export
+def import_transactions(file_path: str):
+    transactions = load_data(TRANSACTIONS_FILE)
+    with open(file_path, "r") as file:
+        reader = csv.DictReader(file)
+        new_transactions = [{
+            "amount": float(row["amount"]),
+            "category": row["category"],
+            "type": row["type"],
+            "date": row["date"]
+        } for row in reader]
+    save_data(TRANSACTIONS_FILE, transactions + new_transactions)
+    print(f"Transactions imported successfully from {file_path}.")
+
+def export_transactions():
+    transactions = load_data(TRANSACTIONS_FILE)
+    export_file = os.path.join(BASE_DIR, "transactions_export.json")
+    save_data(export_file, transactions)
+    print(f"Transactions exported to {export_file}.")
+
+# Menu System
 def menu_loop():
-    """Main menu loop."""
     ensure_files_exist()
-    transactions = load_data("transactions.json")
-    budgets = load_data("budgets.json")
-    update_budget = set_budget(budgets)  # Higher-order function to set budget
-
-    while True:
+    def loop():
         print("\nMenu:")
         print("1. Record a transaction")
         print("2. Set a budget")
-        print("3. Track budget utilization")
-        print("4. Calculate savings target")
-        print("5. Summarize spending")
-        print("6. Analyze trends")
-        print("7. Save and Exit")
+        print("3. Start budget monitoring")
+        print("4. View spending summary")
+        print("5. Set a savings goal")
+        print("6. Update savings progress")
+        print("7. Import transactions (JSON)")
+        print("8. Export transactions")
+        print("9. Exit")
 
         choice = input("Enter your choice: ")
+        transactions = load_data(TRANSACTIONS_FILE)
+        budgets = load_data(BUDGETS_FILE)
         
         if choice == "1":
-            transaction = input_transaction()
-            transactions = add_transaction(transactions, transaction)
+            txn = {
+                "amount": float(input("Enter amount: ")),
+                "category": input("Enter category: "),
+                "type": input("Enter type (income/expense): "),
+                "date": input("Enter date (YYYY-MM-DD): ") or datetime.now().strftime('%Y-%m-%d')
+            }
+            save_data(TRANSACTIONS_FILE, transactions + [txn])
             print("Transaction recorded successfully.")
-
+            check_budget_alerts(transactions + [txn], budgets)
         elif choice == "2":
-            category = input("Enter category: ")
-            amount = float(input("Enter budget amount: "))
-            update_budget(category, amount)  # Call the higher-order function
-            print("Budget set successfully.")
-
+            budgets = {**budgets, input("Enter category: "): float(input("Enter amount: "))}
+            save_data(BUDGETS_FILE, budgets)
+            print("Budget updated.")
         elif choice == "3":
-            utilization = calculate_budget_utilization(transactions, budgets)
-            for category, spent in utilization.items():
-                print(f"{category}: Spent {spent}, Budget {budgets.get(category, 'Not Set')}")
-
+            check_budget_alerts(transactions, budgets)
         elif choice == "4":
-            goal = float(input("Enter savings goal: "))
-            months = int(input("Enter number of months: "))
-            print(f"You need to save {savings_target(goal, months):.2f} per month.")
-
+            summarize_spending(transactions)
         elif choice == "5":
-            spending = summarize_spending(transactions)
-            print("Spending Summary:")
-            for category, amount in spending.items():
-                print(f"{category}: {amount}")
-            print(f"Total Spent: {sum(spending.values())}")
-
+            set_savings_goal()
         elif choice == "6":
-            current_month = int(input("Enter current month (1-12): "))
-            previous_month = int(input("Enter previous month (1-12): "))
-            trends = analyze_trends(transactions, current_month, previous_month)
-            print(f"Current Month: {trends['current']}, Previous Month: {trends['previous']}")
-
+            update_savings(float(input("Enter savings amount: ")))
         elif choice == "7":
-            save_data("transactions.json", transactions)
-            save_data("budgets.json", budgets)
-            print("Data saved successfully. Goodbye!")
-            break
-
+            import_transactions(input("Enter CSV file path: "))
+        elif choice == "8":
+            export_transactions()
+        elif choice == "9":
+            print("Goodbye!")
+            return
         else:
-            print("Invalid choice. Please try again.")
+            print("Invalid choice, please try again.")
+        loop()
+    loop()
 
 if __name__ == "__main__":
     menu_loop()

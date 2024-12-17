@@ -1,163 +1,214 @@
 import json
 import os
+import csv
 from datetime import datetime
-from typing import List, Dict
 
-# Global data stores
-transactions = []
-budgets = {}
+class BudgetTracker:
+    def __init__(self):
+        # Mutable global state
+        self.transactions = []
+        self.budgets = {}
+        self.savings = {
+            'goal': 0,
+            'current_savings': 0,
+            'recommended_monthly': 0
+        }
+        
+        # Configuration
+        self.BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        self.TRANSACTIONS_FILE = os.path.join(self.BASE_DIR, "transactions.json")
+        self.BUDGETS_FILE = os.path.join(self.BASE_DIR, "budgets.json")
+        self.SAVINGS_FILE = os.path.join(self.BASE_DIR, "savings.json")
+        self.ALERT_THRESHOLD = 0.9  # 90% of the budget
 
-# Get the directory of the current script
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TRANSACTIONS_FILE = os.path.join(BASE_DIR, "transactions.json")
-BUDGETS_FILE = os.path.join(BASE_DIR, "budgets.json")
+    def load_state(self):
+        """Load mutable state from files."""
+        try:
+            with open(self.TRANSACTIONS_FILE, 'r') as f:
+                self.transactions = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.transactions = []
 
-# File Management Functions
-def ensure_files_exist():
-    """Ensure that necessary data files exist with initial content."""
-    if not os.path.exists(TRANSACTIONS_FILE):
-        with open(TRANSACTIONS_FILE, "w") as file:
-            json.dump([], file)  # Empty list for transactions
-        print(f"Created '{TRANSACTIONS_FILE}' with initial empty data.")
+        try:
+            with open(self.BUDGETS_FILE, 'r') as f:
+                self.budgets = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.budgets = {}
 
-    if not os.path.exists(BUDGETS_FILE):
-        with open(BUDGETS_FILE, "w") as file:
-            json.dump({}, file)  # Empty dictionary for budgets
-        print(f"Created '{BUDGETS_FILE}' with initial empty data.")
+        try:
+            with open(self.SAVINGS_FILE, 'r') as f:
+                self.savings = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.savings = {
+                'goal': 0,
+                'current_savings': 0,
+                'recommended_monthly': 0
+            }
 
-def load_data():
-    """Load transactions and budgets from files."""
-    global transactions, budgets
+    def save_state(self):
+        """Save current mutable state to files."""
+        with open(self.TRANSACTIONS_FILE, 'w') as f:
+            json.dump(self.transactions, f, indent=4)
 
-    try:
-        with open(TRANSACTIONS_FILE, "r") as file:
-            transactions = json.load(file)
-        print("Transactions loaded successfully.")
-    except FileNotFoundError:
-        transactions = []
-        print("No transactions file found. Starting with an empty list.")
+        with open(self.BUDGETS_FILE, 'w') as f:
+            json.dump(self.budgets, f, indent=4)
 
-    try:
-        with open(BUDGETS_FILE, "r") as file:
-            budgets = json.load(file)
-        print("Budgets loaded successfully.")
-    except FileNotFoundError:
-        budgets = {}
-        print("No budgets file found. Starting with an empty dictionary.")
+        with open(self.SAVINGS_FILE, 'w') as f:
+            json.dump(self.savings, f, indent=4)
 
-def save_data():
-    """Save transactions and budgets to files."""
-    with open(TRANSACTIONS_FILE, "w") as file:
-        json.dump(transactions, file, indent=4)
-    with open(BUDGETS_FILE, "w") as file:
-        json.dump(budgets, file, indent=4)
-    print("Data saved successfully. Goodbye!")
+    def record_transaction(self, amount, category, type, date=None):
+        """Add a transaction with side effects."""
+        transaction = {
+            'amount': amount,
+            'category': category,
+            'type': type,
+            'date': date or datetime.now().strftime('%Y-%m-%d')
+        }
+        self.transactions.append(transaction)
+        self.save_state()
+        self.check_budget_alerts()
 
-# Transaction Functions
-def record_transaction():
-    """Record a new transaction."""
-    amount = float(input("Enter transaction amount: "))
-    category = input("Enter transaction category: ")
-    type_ = input("Enter transaction type (income/expense): ")
-    date = input("Enter transaction date (YYYY-MM-DD) or press Enter for today: ")
-    date = date or datetime.now().strftime('%Y-%m-%d')
+    def set_budget(self, category, amount):
+        """Set a budget with side effects."""
+        self.budgets[category] = amount
+        self.save_state()
+        print(f"Budget for {category} set to ${amount}")
 
-    transactions.append({
-        "amount": amount,
-        "category": category,
-        "type": type_,
-        "date": date,
-    })
-    print("Transaction recorded successfully.")
+    def check_budget_alerts(self):
+        """Check budget alerts with side effects."""
+        category_spending = {}
+        
+        # Mutate spending tracker
+        for transaction in self.transactions:
+            if transaction['type'] == 'expense':
+                category = transaction['category']
+                if category not in category_spending:
+                    category_spending[category] = 0
+                category_spending[category] += transaction['amount']
+        
+        # Side effect: print alerts
+        for category, spent in category_spending.items():
+            if category in self.budgets:
+                utilization = spent / self.budgets[category]
+                if utilization >= self.ALERT_THRESHOLD:
+                    print(f"⚠️ ALERT: '{category}' is at {utilization:.0%} of budget!")
 
-def summarize_spending():
-    """Summarize spending by category."""
-    spending = {}
-    for transaction in transactions:
-        if transaction['type'] == 'expense':
-            spending[transaction['category']] = spending.get(transaction['category'], 0) + transaction['amount']
+    def summarize_spending(self):
+        """Generate spending summary with side effects."""
+        category_totals = {}
+        total_spending = 0
 
-    total_spent = sum(spending.values())
-    print("Spending Summary:")
-    for category, amount in spending.items():
-        print(f"{category}: {amount}")
-    print(f"Total Spent: {total_spent}")
+        # Mutate totals
+        for transaction in self.transactions:
+            if transaction['type'] == 'expense':
+                category = transaction['category']
+                if category not in category_totals:
+                    category_totals[category] = 0
+                category_totals[category] += transaction['amount']
+                total_spending += transaction['amount']
 
-def analyze_trends():
-    """Analyze spending trends for the current and previous months."""
-    current_month = int(input("Enter current month (1-12): "))
-    previous_month = int(input("Enter previous month (1-12): "))
+        # Side effect: print summary
+        print("\nSpending Summary:")
+        for category, amount in category_totals.items():
+            print(f"  - {category}: ${amount:.2f}")
+        print(f"Total Spending: ${total_spending:.2f}")
 
-    current_spending = sum(
-        t['amount'] for t in transactions if int(t['date'].split('-')[1]) == current_month and t['type'] == 'expense'
-    )
-    previous_spending = sum(
-        t['amount'] for t in transactions if int(t['date'].split('-')[1]) == previous_month and t['type'] == 'expense'
-    )
-    print("Spending Trends:")
-    print(f"Current Month: {current_spending}, Previous Month: {previous_spending}")
+    def set_savings_goal(self, goal):
+        """Set savings goal with side effects."""
+        self.savings['goal'] = goal
+        self.savings['recommended_monthly'] = goal / 12
+        self.save_state()
+        print(f"Savings goal set to ${goal}. Recommended monthly savings: ${goal/12:.2f}")
 
-# Budget Functions
-def set_budget():
-    """Set a budget for a category."""
-    category = input("Enter category to set budget for: ")
-    amount = float(input("Enter budget amount: "))
-    budgets[category] = amount
-    print("Budget set successfully.")
+    def update_savings(self, amount):
+        """Update savings with side effects."""
+        self.savings['current_savings'] += amount
+        self.save_state()
 
-def track_budget_utilization():
-    """Track the budget utilization."""
-    utilization = {category: 0 for category in budgets}
-    for transaction in transactions:
-        if transaction['type'] == 'expense' and transaction['category'] in budgets:
-            utilization[transaction['category']] += transaction['amount']
+        print(f"Added ${amount} to savings.")
+        print(f"Current savings: ${self.savings['current_savings']}")
 
-    print("Budget Utilization:")
-    for category, spent in utilization.items():
-        print(f"{category}: Spent {spent}, Budget {budgets.get(category, 'Not Set')}")
+        # Side effect: achievement notification
+        if self.savings['current_savings'] >= self.savings['goal']:
+            print("🎉 Congratulations! You've achieved your savings goal!")
 
-def calculate_savings():
-    """Calculate monthly savings target."""
-    goal = float(input("Enter savings goal: "))
-    months = int(input("Enter number of months: "))
-    monthly_savings = goal / months
-    print(f"You need to save {monthly_savings:.2f} per month.")
+    def import_transactions(self, file_path):
+        """Import transactions with side effects."""
+        with open(file_path, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                self.record_transaction(
+                    amount=float(row['amount']),
+                    category=row['category'],
+                    type=row['type'],
+                    date=row['date']
+                )
+        print(f"Imported transactions from {file_path}")
 
-# Main Application Loop
+    def run(self):
+        """Main imperative control flow."""
+        self.load_state()
+
+        while True:
+            print("\n--- Budget Tracker ---")
+            print("1. Record a transaction")
+            print("2. Set a budget")
+            print("3. Start budget monitoring")
+            print("4. View spending summary")
+            print("5. Set a savings goal")
+            print("6. Update savings progress")
+            print("7. Import transactions (CSV)")
+            print("8. Export transactions")
+            print("9. Exit")
+            choice = input("Choose an option: ")
+
+            try:
+                if choice == '1':
+                    amount = float(input("Amount: "))
+                    category = input("Category: ")
+                    type = input("Type (income/expense): ")
+                    self.record_transaction(amount, category, type)
+                
+                elif choice == '2':
+                    category = input("Category: ")
+                    amount = float(input("Budget Amount: "))
+                    self.set_budget(category, amount)
+                
+                elif choice == '3':
+                    self.check_budget_alerts()
+                
+                elif choice == '4':
+                    self.summarize_spending()
+                
+                elif choice == '5':
+                    goal = float(input("Savings Goal: "))
+                    self.set_savings_goal(goal)
+                
+                elif choice == '6':
+                    amount = float(input("Savings Amount: "))
+                    self.update_savings(amount)
+                
+                elif choice == '7':
+                    file_path = input("CSV File Path: ")
+                    self.import_transactions(file_path)
+                elif choice == '8':
+                    print("Exporting transactions...")
+                    self.save_state()
+                    print("Transactions exported.")
+                    
+                elif choice == '9':
+                    print("Exiting...")
+                    break
+                
+                else:
+                    print("Invalid option")
+
+            except ValueError as e:
+                print(f"Error: {e}")
+
 def main():
-    """Main function to run the financial app."""
-    ensure_files_exist()
-    load_data()
-
-    while True:
-        print("\nMenu:")
-        print("1. Record a transaction")
-        print("2. Set a budget")
-        print("3. Track budget utilization")
-        print("4. Calculate savings target")
-        print("5. Summarize spending")
-        print("6. Analyze trends")
-        print("7. Save and Exit")
-
-        choice = input("Enter your choice: ")
-
-        if choice == '1':
-            record_transaction()
-        elif choice == '2':
-            set_budget()
-        elif choice == '3':
-            track_budget_utilization()
-        elif choice == '4':
-            calculate_savings()
-        elif choice == '5':
-            summarize_spending()
-        elif choice == '6':
-            analyze_trends()
-        elif choice == '7':
-            save_data()
-            break
-        else:
-            print("Invalid choice. Please try again.")
+    tracker = BudgetTracker()
+    tracker.run()
 
 if __name__ == "__main__":
     main()

@@ -34,5 +34,53 @@
         "category": "transportation",
         "type": "expense",
         "date": "2024-03-06"
+    },
+    {
+        "amount": 500.0,
+        "category": "expenes",
+        "type": "expense",
+        "date": "2024-12-18"
+    },
+    {
+        "amount": 150.5,
+        "category": "groceries",
+        "type": "expense",
+        "date": "2024-03-01"
+    },
+    {
+        "amount": 200.0,
+        "category": "rent",
+        "type": "expense",
+        "date": "2024-03-02"
+    },
+    {
+        "amount": 8000.0,
+        "category": "salary",
+        "type": "income",
+        "date": "2024-03-03"
+    },
+    {
+        "amount": 45.0,
+        "category": "entertainment",
+        "type": "expense",
+        "date": "2024-03-04"
+    },
+    {
+        "amount": 400.0,
+        "category": "utilities",
+        "type": "expense",
+        "date": "2024-03-05"
+    },
+    {
+        "amount": 500.75,
+        "category": "transportation",
+        "type": "expense",
+        "date": "2024-03-06"
+    },
+    {
+        "amount": 500.0,
+        "category": "food",
+        "type": "expense",
+        "date": "2024-12-18"
     }
 ]

@@ -145,14 +145,14 @@ def export_transactions():
 def menu_loop():
     ensure_files_exist()
     def loop():
-        print("\nMenu:")
+        print("\n--- Budget Tracker ---")
         print("1. Record a transaction")
         print("2. Set a budget")
         print("3. Start budget monitoring")
         print("4. View spending summary")
         print("5. Set a savings goal")
         print("6. Update savings progress")
-        print("7. Import transactions (JSON)")
+        print("7. Import transactions (CSV)")
         print("8. Export transactions")
         print("9. Exit")
 
